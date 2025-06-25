@@ -46,3 +46,9 @@ class ContactForm(BaseModel):
                 "message": "I would like to inquire about your services."
             }
         }
+
+class GeneralMessageForm(BaseModel):
+    name: str = Field(..., example="John Doe")
+    email: EmailStr = Field(..., example="john@example.com")
+    subject: str = Field(..., example="Need a callback")
+    message: str = Field(..., example="I would like to discuss my investment options.")

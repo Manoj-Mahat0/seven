@@ -5,3 +5,4 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client["blog_db"]
 blog_collection = db["blogs"]
 contact_collection = db["contact"]  # Create a new collection for inquiries
+message_collection = db["general_messages"]

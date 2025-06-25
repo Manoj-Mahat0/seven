@@ -7,9 +7,9 @@ from typing import List, Optional
 from bson import ObjectId
 import os
 
-from database import blog_collection, db, contact_collection
+from database import blog_collection, db, contact_collection, message_collection
 from email_utils import render_template, send_email
-from models import BlogCreate, BlogResponse, BlogUpdate, ContactForm, UserCreate, TokenResponse
+from models import BlogCreate, BlogResponse, BlogUpdate, ContactForm, GeneralMessageForm, UserCreate, TokenResponse
 from models import LoginRequest
 
 from utils import save_image
@@ -153,3 +153,41 @@ async def submit_contact(data: ContactForm):
     )
 
     return {"message": "Thank you! Your message has been received."}
+
+@app.post("/message", tags=["General Message"])
+async def submit_general_message(data: GeneralMessageForm):
+    context = {
+        "name": data.name,
+        "email": data.email,
+        "subject": data.subject,
+        "message": data.message,
+        "submitted_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    # ✅ Save to DB
+    await message_collection.insert_one({
+        **context,
+        "created_at": datetime.utcnow()
+    })
+
+    # ✅ Render admin notification
+    html_admin = render_template("email_templates/general_message.html", context)
+
+    await send_email(
+        to_email="support@sevenfinancials.in",
+        subject=f"📬 {data.subject}",
+        text_body=f"Name: {data.name}\nEmail: {data.email}\nSubject: {data.subject}\n\nMessage:\n{data.message}",
+        html_body=html_admin
+    )
+
+    # ✅ Auto-reply to user
+    html_user = render_template("email_templates/general_autoreply.html", context)
+
+    await send_email(
+        to_email=data.email,
+        subject="✅ We've received your message",
+        text_body=f"Hi {data.name},\n\nThank you for contacting Seven Financials. We will get back to you shortly regarding: {data.subject}",
+        html_body=html_user
+    )
+
+    return {"message": "Your message has been received and a confirmation has been sent to your email."}
