@@ -1,4 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from datetime import datetime
+from fastapi import Body, FastAPI, UploadFile, File, Form, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -6,8 +7,9 @@ from typing import List, Optional
 from bson import ObjectId
 import os
 
-from database import blog_collection, db
-from models import BlogCreate, BlogResponse, UserCreate, TokenResponse
+from database import blog_collection, db, contact_collection
+from email_utils import render_template, send_email
+from models import BlogCreate, BlogResponse, BlogUpdate, ContactForm, UserCreate, TokenResponse
 from models import LoginRequest
 
 from utils import save_image
@@ -73,19 +75,23 @@ async def get_blogs():
     return blogs
 
 @app.put("/blogs/{blog_id}", response_model=BlogResponse)
-async def update_blog(blog_id: str, data: BlogCreate, current_user: dict = Depends(get_current_user)):
-    # REMOVE THIS CHECK TEMPORARILY (for dev only)
-    # blog = await blog_collection.find_one({"_id": ObjectId(blog_id)})
-    # if not blog or blog["author_email"] != current_user["email"]:
+async def update_blog(blog_id: str, data: BlogUpdate = Body(...), current_user: dict = Depends(get_current_user)):
+    blog = await blog_collection.find_one({"_id": ObjectId(blog_id)})
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+
+    # Uncomment before production
+    # if blog["author_email"] != current_user["email"]:
     #     raise HTTPException(status_code=403, detail="Not authorized to update this blog")
 
-    await blog_collection.update_one(
-        {"_id": ObjectId(blog_id)},
-        {"$set": data.dict()}
-    )
+    update_data = {k: v for k, v in data.dict(exclude_unset=True).items()}
+
+    if update_data:
+        await blog_collection.update_one({"_id": ObjectId(blog_id)}, {"$set": update_data})
+
     updated = await blog_collection.find_one({"_id": ObjectId(blog_id)})
-    updated["id"] = str(updated["_id"])
-    return updated
+    updated["id"] = str(updated.pop("_id"))
+    return BlogResponse(**updated)
 
 
 @app.delete("/blogs/{blog_id}")
@@ -104,3 +110,46 @@ async def serve_image(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(path)
+
+@app.post("/contact")
+async def submit_contact(data: ContactForm):
+    from datetime import datetime
+
+    # ✅ Save to DB
+    await contact_collection.insert_one({
+        "name": data.name,
+        "email": data.email,
+        "contact_number": data.contact_number,
+        "message": data.message,
+        "submitted_at": datetime.utcnow()
+    })
+
+    # Context for template
+    context = {
+        "name": data.name,
+        "email": data.email,
+        "phone": data.contact_number,
+        "message": data.message
+    }
+
+    # Load and render templates
+    admin_html = render_template("email_templates/contact_admin.html", context)
+    user_html = render_template("email_templates/contact_user_reply.html", context)
+
+    # Send to admin
+    await send_email(
+        to_email="support@sevenfinancials.in",
+        subject="📩 New Contact Inquiry",
+        text_body=f"Name: {data.name}\nEmail: {data.email}\nPhone: {data.contact_number}\n\nMessage:\n{data.message}",
+        html_body=admin_html
+    )
+
+    # Auto-reply to user
+    await send_email(
+        to_email=data.email,
+        subject="✅ Thank you for contacting Seven Financials",
+        text_body=f"Hi {data.name},\n\nThank you for contacting Seven Financials. We will reply soon.",
+        html_body=user_html
+    )
+
+    return {"message": "Thank you! Your message has been received."}
