@@ -1,5 +1,5 @@
 from datetime import datetime
-from fastapi import Body, FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi import Body, FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -71,6 +71,23 @@ async def get_blogs():
     blogs = []
     async for doc in blog_collection.find():
         doc["id"] = str(doc["_id"])
+        blogs.append(doc)
+    return blogs
+
+@app.get("/blogs/with-images", response_model=List[BlogResponse])
+async def get_blogs_with_image_urls(request: Request):
+    blogs = []
+    base_url = str(request.base_url).rstrip("/")
+    async for doc in blog_collection.find():
+        doc["id"] = str(doc["_id"])
+        # Convert feature_image to full URL
+        if doc.get("feature_image"):
+            doc["feature_image"] = f"{base_url}/uploads/{os.path.basename(doc['feature_image'])}"
+        # Convert all images to full URLs
+        if doc.get("images"):
+            doc["images"] = [
+                f"{base_url}/uploads/{os.path.basename(img)}" for img in doc["images"]
+            ]
         blogs.append(doc)
     return blogs
 
