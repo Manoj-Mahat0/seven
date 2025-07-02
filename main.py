@@ -1,5 +1,7 @@
 from datetime import datetime
 from fastapi import Body, FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
+from datetime import datetime, timedelta
+import pytz
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -41,12 +43,16 @@ async def login(login_data: LoginRequest):
 @app.post("/blogs", response_model=BlogResponse)
 async def create_blog(
     title: str = Form(...),
-    content: str = Form(...),
+    content: str = Form(..., description="Supports Markdown or HTML for rich formatting (headings, bullet points, tables, links, etc.)"),
     tags: Optional[str] = Form(""),
     feature_image: UploadFile = File(...),
     images: Optional[List[UploadFile]] = File(None),
     current_user: dict = Depends(get_current_user)
 ):
+    """
+    Create a blog post.
+    - `content` supports Markdown or HTML for subheadings (h2-h5), bullet points, tables, and links to other blogs.
+    """
     feature_path = await save_image(feature_image)
     image_paths = []
     if images:
@@ -54,13 +60,18 @@ async def create_blog(
             path = await save_image(img)
             image_paths.append(path)
 
+    # Get current time in IST (Indian Standard Time)
+    ist = pytz.timezone("Asia/Kolkata")
+    created_at = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
+
     blog = {
         "title": title,
-        "content": content,
+        "content": content,  # Accepts Markdown/HTML for rich formatting
         "tags": tags.split(",") if tags else [],
         "feature_image": feature_path,
         "images": image_paths,
-        "author_email": current_user["email"]
+        "author_email": current_user["email"],
+        "created_at": created_at  # Indian timestamp
     }
     result = await blog_collection.insert_one(blog)
     blog["id"] = str(result.inserted_id)
